@@ -110,6 +110,7 @@ Features:
 ---
 
 ## 🚀 How to Run Locally
+https://churnapp1.streamlit.app/
 
 ## Author
 Animesh Sandhu
