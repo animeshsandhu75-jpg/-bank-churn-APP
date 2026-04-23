@@ -8,8 +8,11 @@ import joblib
 # -------------------------------
 st.set_page_config(page_title="Churn Predictor", layout="centered")
 
-st.title("🏦 Customer Churn Prediction")
-st.write("Predict whether a customer is likely to churn")
+st.title("🏦 Customer Churn Prediction System")
+st.markdown("""
+Predict whether a customer is likely to churn using a machine learning model.
+This app also provides risk levels and business insights.(Fill the details in the sidebar, click on left top arrow )
+""")
 
 # -------------------------------
 # Load Model
@@ -17,22 +20,23 @@ st.write("Predict whether a customer is likely to churn")
 model = joblib.load("churn_model.pkl")
 
 # -------------------------------
-# User Inputs
+# Sidebar Inputs (Cleaner UI)
 # -------------------------------
-st.subheader("Enter Customer Details")
+st.sidebar.header("🧾 Customer Details")
 
-credit_score = st.number_input("Credit Score", 300, 900, 600)
-geography = st.selectbox("Geography", ["France", "Spain", "Germany"])
-gender = st.selectbox("Gender", ["Male", "Female"])
-age = st.slider("Age", 18, 100, 30)
-tenure = st.slider("Tenure (years)", 0, 10, 3)
-balance = st.number_input("Balance", 0.0, 250000.0, 50000.0)
-num_products = st.slider("Number of Products", 1, 4, 1)
-has_card = st.selectbox("Has Credit Card", [0, 1])
-is_active = st.selectbox("Is Active Member", [0, 1])
-salary = st.number_input("Estimated Salary", 0.0, 200000.0, 50000.0)
+credit_score = st.sidebar.number_input("Credit Score", 300, 900, 600)
+geography = st.sidebar.selectbox("Geography", ["France", "Spain", "Germany"])
+gender = st.sidebar.selectbox("Gender", ["Male", "Female"])
+age = st.sidebar.slider("Age", 18, 100, 30)
+tenure = st.sidebar.slider("Tenure (years)", 0, 10, 3)
+balance = st.sidebar.number_input("Balance", 0.0, 250000.0, 50000.0)
+num_products = st.sidebar.slider("Number of Products", 1, 4, 1)
+has_card = st.sidebar.selectbox("Has Credit Card", [0, 1])
+is_active = st.sidebar.selectbox("Is Active Member", [0, 1])
+salary = st.sidebar.number_input("Estimated Salary", 0.0, 200000.0, 50000.0)
 
 # -------------------------------
+# Feature Engineering (same as training)
 # -------------------------------
 
 # Balance Salary Ratio (log)
@@ -81,52 +85,56 @@ input_data = pd.DataFrame({
 # -------------------------------
 # Prediction
 # -------------------------------
-if st.button("Predict"):
+if st.button("🔮 Predict Churn"):
 
     prob = model.predict_proba(input_data)[0][1]
-    prediction = model.predict(input_data)[0]
 
     st.subheader("📊 Prediction Result")
 
-    # Risk levels
+    # Risk Levels
     if prob >= 0.7:
-        st.error(f"⚠️ High Risk of Churn ({prob:.2f})")
+        st.error(f"🔴 High Risk of Churn ({prob:.2f})")
     elif prob >= 0.4:
-        st.warning(f"🟠 Medium Risk of Churn ({prob:.2f})")
+        st.warning(f"🟡 Medium Risk of Churn ({prob:.2f})")
     else:
-        st.success(f"✅ Low Risk of Churn ({prob:.2f})")
+        st.success(f"🟢 Low Risk of Churn ({prob:.2f})")
 
-    # Progress bar
+    # Probability bar
     st.progress(float(prob))
 
     # -------------------------------
     # Business Insight
     # -------------------------------
-    st.subheader("📈 Business Insight")
+    st.subheader("💰 Business Insight")
 
-    if prob > 0.3:
-        st.write("👉 Recommend retention strategy (offer, engagement, call)")
+    if prob >= 0.7:
+        st.write("👉 Immediate retention action recommended (offers, calls, engagement)")
+    elif prob >= 0.4:
+        st.write("👉 Monitor customer and consider soft engagement strategies")
     else:
         st.write("👉 Customer is stable, no immediate action needed")
 
     # -------------------------------
-    # Simple Explainability
+    # Explainability (Simple)
     # -------------------------------
-    st.subheader("🔍 Possible Reasons")
+    st.subheader("🔍 Key Drivers")
 
     reasons = []
 
     if is_active == 0:
-        reasons.append("Customer is inactive")
+        reasons.append("Customer is inactive (high churn risk)")
 
     if age > 45:
         reasons.append("Customer belongs to higher age group")
 
     if balance > 100000:
-        reasons.append("Customer has high balance (possible switching risk)")
+        reasons.append("High balance may indicate switching behavior")
 
     if num_products == 1:
-        reasons.append("Customer has low product engagement")
+        reasons.append("Low product engagement")
+
+    if geography == "Germany":
+        reasons.append("Geographical churn pattern observed")
 
     if len(reasons) > 0:
         for r in reasons:
@@ -138,4 +146,4 @@ if st.button("Predict"):
 # Footer
 # -------------------------------
 st.markdown("---")
-st.write("Built using Streamlit | ML Churn Prediction Project")
+st.caption("Built with Streamlit | End-to-End ML Project with Business Insights") 
