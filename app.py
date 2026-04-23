@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import shap
 
 # -------------------------------
 # Page Config
@@ -11,7 +12,7 @@ st.set_page_config(page_title="Churn Predictor", layout="centered")
 st.title("🏦 Customer Churn Prediction System")
 st.markdown("""
 Predict whether a customer is likely to churn using a machine learning model.
-This app also provides risk levels and business insights.(Fill the details in the sidebar, click on left top arrow )
+Includes risk levels, business insights, financial impact, and explainability.
 """)
 
 # -------------------------------
@@ -19,8 +20,12 @@ This app also provides risk levels and business insights.(Fill the details in th
 # -------------------------------
 model = joblib.load("churn_model.pkl")
 
+# Extract model & preprocessor for SHAP
+rf_model = model.named_steps['model']
+preprocessor = model.named_steps['preprocessing']
+
 # -------------------------------
-# Sidebar Inputs (Cleaner UI)
+# Sidebar Inputs
 # -------------------------------
 st.sidebar.header("🧾 Customer Details")
 
@@ -36,14 +41,28 @@ is_active = st.sidebar.selectbox("Is Active Member", [0, 1])
 salary = st.sidebar.number_input("Estimated Salary", 0.0, 200000.0, 50000.0)
 
 # -------------------------------
-# Feature Engineering (same as training)
+# Strategy Mode (instead of threshold slider)
 # -------------------------------
+mode = st.sidebar.selectbox(
+    "Retention Strategy",
+    ["Balanced", "Aggressive Retention", "Cost Saving"]
+)
 
-# Balance Salary Ratio (log)
+if mode == "Aggressive Retention":
+    threshold = 0.3
+elif mode == "Balanced":
+    threshold = 0.5
+else:
+    threshold = 0.7
+
+st.sidebar.caption(f"Using threshold = {threshold}")
+
+# -------------------------------
+# Feature Engineering
+# -------------------------------
 balance_salary_ratio = balance / (salary + 1)
 balance_salary_ratio_log = np.log1p(balance_salary_ratio)
 
-# Age Group
 if age < 30:
     age_group = "Young"
 elif age < 45:
@@ -53,7 +72,6 @@ elif age < 60:
 else:
     age_group = "Old"
 
-# Credit Score Group
 if credit_score < 500:
     credit_group = "Low"
 elif credit_score < 650:
@@ -63,9 +81,6 @@ elif credit_score < 750:
 else:
     credit_group = "Excellent"
 
-# -------------------------------
-# Create Input DataFrame
-# -------------------------------
 input_data = pd.DataFrame({
     'CreditScore': [credit_score],
     'Geography': [geography],
@@ -88,62 +103,198 @@ input_data = pd.DataFrame({
 if st.button("🔮 Predict Churn"):
 
     prob = model.predict_proba(input_data)[0][1]
+    prediction = int(prob > threshold)
 
     st.subheader("📊 Prediction Result")
 
-    # Risk Levels
-    if prob >= 0.7:
+    # -------------------------------
+    # Confidence Bands
+    # -------------------------------
+    if 0.4 <= prob <= 0.6:
+        st.info(f"⚠️ Uncertain Prediction Zone ({prob:.2f})")
+    elif prob > 0.7:
         st.error(f"🔴 High Risk of Churn ({prob:.2f})")
-    elif prob >= 0.4:
+    elif prob > 0.4:
         st.warning(f"🟡 Medium Risk of Churn ({prob:.2f})")
     else:
         st.success(f"🟢 Low Risk of Churn ({prob:.2f})")
 
-    # Probability bar
+    st.write(f"📌 Final Decision (threshold={threshold}): {'Churn' if prediction else 'No Churn'}")
     st.progress(float(prob))
 
     # -------------------------------
-    # Business Insight
+    # 💰 Business Value
     # -------------------------------
-    st.subheader("💰 Business Insight")
+    st.subheader("💰 Financial Impact")
 
-    if prob >= 0.7:
-        st.write("👉 Immediate retention action recommended (offers, calls, engagement)")
-    elif prob >= 0.4:
-        st.write("👉 Monitor customer and consider soft engagement strategies")
+    avg_customer_value = 50000
+    retention_cost = 5000
+
+    revenue_at_risk = prob * avg_customer_value
+    net_gain = revenue_at_risk - retention_cost
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric("Revenue at Risk", f"₹{revenue_at_risk:,.0f}")
+
+    with col2:
+        st.metric("Potential Net Gain", f"₹{net_gain:,.0f}")
+
+    st.caption("Estimated using churn probability — not guaranteed outcome.")
+
+    # -------------------------------
+    # 💡 Business Insight
+    # -------------------------------
+    st.subheader("💡 Business Insight")
+
+    if prediction == 1:
+        st.write("👉 Customer likely to churn — retention action recommended")
     else:
-        st.write("👉 Customer is stable, no immediate action needed")
+        st.write("👉 Customer likely to stay — no immediate action needed")
 
     # -------------------------------
-    # Explainability (Simple)
+    # 🔍 SHAP Explainability
     # -------------------------------
-    st.subheader("🔍 Key Drivers")
+    if prediction == 1:
+        st.subheader("🔍 Why is this customer at risk?")
 
-    reasons = []
+        # Get SHAP values
+        X_transformed = preprocessor.transform(input_data)
+        explainer = shap.Explainer(rf_model)
+        shap_values = explainer(X_transformed)
 
-    if is_active == 0:
-        reasons.append("Customer is inactive (high churn risk)")
+        shap_vals = shap_values.values
 
-    if age > 45:
-        reasons.append("Customer belongs to higher age group")
+        # Fix shape
+        if len(shap_vals.shape) == 3:
+            shap_vals = shap_vals[0, :, 1]
+        else:
+            shap_vals = shap_vals[0]
 
-    if balance > 100000:
-        reasons.append("High balance may indicate switching behavior")
+        feature_names = preprocessor.get_feature_names_out()
 
-    if num_products == 1:
-        reasons.append("Low product engagement")
+        # Create dataframe
+        feature_importance = pd.DataFrame({
+            "Feature": feature_names,
+            "Impact": shap_vals
+        })
 
-    if geography == "Germany":
-        reasons.append("Geographical churn pattern observed")
+        feature_importance["AbsImpact"] = np.abs(feature_importance["Impact"])
+        feature_importance = feature_importance.sort_values(by="AbsImpact", ascending=False)
 
-    if len(reasons) > 0:
-        for r in reasons:
-            st.write(f"- {r}")
-    else:
-        st.write("No strong churn indicators detected")
+        top_features = feature_importance.head(3)
+
+        # -------------------------------
+        # Convert to simple language
+        # -------------------------------
+        messages = []
+
+        for feature in top_features["Feature"]:
+
+            if "IsActiveMember" in feature:
+                messages.append("Customer is inactive → higher churn risk")
+
+            elif "Age" in feature:
+                messages.append("Customer age group is linked with higher churn")
+
+            elif "NumOfProducts" in feature:
+                messages.append("Low product usage → low engagement")
+
+            elif "BalanceSalaryRatio" in feature:
+                messages.append("High balance relative to salary → possible switching behavior")
+
+            elif "Geography_Germany" in feature:
+                messages.append("Customers from this region tend to churn more")
+
+            elif "CreditScore" in feature:
+                messages.append("Credit score influences churn likelihood")
+
+        # Remove duplicates
+        messages = list(set(messages))
+
+        if messages:
+            for msg in messages:
+                st.write(f"👉 {msg}")
+        else:
+            st.write("No strong churn indicators detected")
+        st.subheader("🛠️ Recommended Actions")
+
+        actions = []
+
+        for feature in top_features["Feature"]:
+
+            if "IsActiveMember" in feature:
+                actions.append("Re-engage customer with personalized offers or notifications")
+
+            elif "NumOfProducts" in feature:
+                actions.append("Cross-sell additional products to increase engagement")
+
+            elif "BalanceSalaryRatio" in feature:
+                actions.append("Provide premium support or financial advisory to retain high-value customer")
+
+            elif "Geography_Germany" in feature:
+                actions.append("Apply region-specific retention strategies")
+
+            elif "Age" in feature:
+                actions.append("Offer tailored services based on customer life stage")
+
+            elif "CreditScore" in feature:
+                actions.append("Provide financial incentives or credit-related benefits")
+
+        actions = list(set(actions))
+
+        if actions:
+            for act in actions:
+                st.write(f"👉 {act}")
+        else:
+            st.write("No specific action required")
+# -------------------------------
+# Batch Prediction
+# -------------------------------
+st.subheader("📂 Batch Prediction")
+
+uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+
+if uploaded_file:
+
+    df_batch = pd.read_csv(uploaded_file)
+
+    required_cols = ['CreditScore','Geography','Gender','Age','Tenure',
+                     'Balance','NumOfProducts','HasCrCard','IsActiveMember','EstimatedSalary']
+
+    missing = [col for col in required_cols if col not in df_batch.columns]
+
+    if missing:
+        st.error(f"Missing columns: {missing}")
+        st.stop()
+
+    df_batch['BalanceSalaryRatio'] = df_batch['Balance'] / (df_batch['EstimatedSalary'] + 1)
+    df_batch['BalanceSalaryRatio_log'] = np.log1p(df_batch['BalanceSalaryRatio'])
+
+    df_batch['AgeGroup'] = pd.cut(df_batch['Age'], bins=[18,30,45,60,100],
+                                 labels=['Young','Adult','Senior','Old'])
+
+    df_batch['CreditScoreGroup'] = pd.cut(df_batch['CreditScore'],
+                                         bins=[300,500,650,750,900],
+                                         labels=['Low','Medium','Good','Excellent'])
+
+    df_batch = df_batch.drop(columns=['BalanceSalaryRatio'], errors='ignore')
+    df_batch = df_batch.drop(columns=['Surname','CustomerId','RowNumber'], errors='ignore')
+
+    preds = model.predict_proba(df_batch)[:,1]
+
+    df_batch['Churn_Probability'] = preds
+    df_batch['Prediction'] = (df_batch['Churn_Probability'] > threshold).astype(int)
+
+    st.subheader("📊 Batch Results")
+    st.dataframe(df_batch.head())
+
+    csv = df_batch.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 Download Results", csv, "predictions.csv", "text/csv")
 
 # -------------------------------
 # Footer
 # -------------------------------
 st.markdown("---")
-st.caption("Built with Streamlit | End-to-End ML Project with Business Insights") 
+st.caption("Built with Streamlit | End-to-End ML System with Explainability & Business Impact")
